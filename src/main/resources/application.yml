@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: incident
+  datasource:
+      url: jdbc:mysql://172.16.100.234:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false
+      username: hansight
+      password: hansight
+      driver-class-name: com.mysql.jdbc.Driver
+      test-on-borrow: true
+      validation-query: select 1
+
+
+migration:
+  start_time: 2018-11-26
+  end_time: 2018-11-27
+
+logging:
+  config: log4j2.yml
+
+elasticsearch:
+  cluster_name: hansight-enterprise
+  cluster_nodes: 172.16.100.233:9200

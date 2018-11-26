@@ -1,0 +1,14 @@
+
+1. 本服务只支持2.x Es的告警数据转换到2.x Es的安全事件数据
+2. 相关配置信息在application.yml
+	- url: jdbc:mysql://127.0.0.1:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false ，配置Hes v5.0 mysql数据库信息
+	- cluster_nodes: 127.0.0.1:9300，配置待转换数据Es信息
+	- start_time: 2018-09-01 & end_time: 2018-09-10，待转换的告警数据区间
+
+
+
+
+
+
+
+
