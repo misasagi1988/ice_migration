@@ -1,7 +1,5 @@
 package com.hansight.v5.migration;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,7 +7,6 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -19,11 +16,6 @@ import java.util.regex.Pattern;
 public class IPService {
     private final static Logger LOG = LoggerFactory.getLogger(IPService.class);
     private static Map<IPRange, String> systemIntranets = new HashMap<>();//非线程安全，所以需要搭配锁使用
-    private static Cache<String, Boolean> IPCACHE = CacheBuilder.newBuilder()
-            .initialCapacity(100000).maximumSize(100000)
-            .expireAfterAccess(30, TimeUnit.MINUTES)
-            .concurrencyLevel(4).build();
-
 
     @Autowired
     private SysCfgInfo sysCfgInfo;
@@ -107,15 +99,28 @@ public class IPService {
         return isTraditinalIntranet(ip2Long(ip));
     }
 
-    public static long ip2Long(final String ip) {
-        if (!isIp(ip)) {
-            throw new IllegalArgumentException("[" + ip + "]不是有效的ip地址");
+    public static long ip2Long(String ip) {
+        long ip2long = 0L;
+        try {
+            ip = ip.trim();
+            StringTokenizer stringTokenizer = new StringTokenizer(ip, ".");
+            String[] ips = new String[4];
+            int k = 0;
+            while (stringTokenizer.hasMoreElements()){
+                ips[k++] = stringTokenizer.nextToken();
+                if(k >=4) break;
+            }
+            //非IP数据判断
+            if(k < 4){
+                return -1;
+            }
+            for (int i = 0; i < 4; ++i) {
+                ip2long = ip2long << 8 | Integer.parseInt(ips[i]);
+            }
+        } catch (Exception e) {
+            return -1;
         }
-        final String[] ipNums = ip.split("\\.");
-        return (Long.parseLong(ipNums[0]) << 24)
-                + (Long.parseLong(ipNums[1]) << 16)
-                + (Long.parseLong(ipNums[2]) << 8)
-                + (Long.parseLong(ipNums[3]));
+        return ip2long;
     }
 
     /**
