@@ -1,9 +1,9 @@
 
-1. ±¾·şÎñÖ»Ö§³Ö2.x EsµÄ¸æ¾¯Êı¾İ×ª»»µ½2.x EsµÄ°²È«ÊÂ¼şÊı¾İ
-2. Ïà¹ØÅäÖÃĞÅÏ¢ÔÚapplication.yml
-	- url: jdbc:mysql://127.0.0.1:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false £¬ÅäÖÃHes v5.0 mysqlÊı¾İ¿âĞÅÏ¢
-	- cluster_nodes: 127.0.0.1:9300£¬ÅäÖÃ´ı×ª»»Êı¾İEsĞÅÏ¢
-	- start_time: 2018-09-01 & end_time: 2018-09-10£¬´ı×ª»»µÄ¸æ¾¯Êı¾İÇø¼ä
+1. æœ¬æœåŠ¡åªæ”¯æŒ2.x Esçš„å‘Šè­¦æ•°æ®è½¬æ¢åˆ°2.x Esçš„å®‰å…¨äº‹ä»¶æ•°æ®
+2. ç›¸å…³é…ç½®ä¿¡æ¯åœ¨application.yml
+	- url: jdbc:mysql://127.0.0.1:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false ï¼Œé…ç½®Hes v5.0 mysqlæ•°æ®åº“ä¿¡æ¯
+	- cluster_nodes: 127.0.0.1:9300ï¼Œé…ç½®å¾…è½¬æ¢æ•°æ®Esä¿¡æ¯
+	- start_time: 2018-11-01 & end_time: 2018-11-10ï¼Œå¾…è½¬æ¢çš„å‘Šè­¦æ•°æ®åŒºé—´
 
 
 
