@@ -131,6 +131,16 @@ public class Migration implements Runnable {
         new Thread(this).start();
     }
 
+    // 删除5.x的合并告警、安全事件，复制原始告警、关联表，避免脏数据
+    public void esIndexPrepare(long start, long end) {
+        EsUtil.deleteIndex(Merge_5x_Index, Incident_5x_Index_Local);
+        while (start < end) {
+            String yyyyMMDate = yyyymm.format(new Date(start));
+            EsUtil.deleteIndex(Alarm_5x_Index + yyyyMMDate, Related_5x_Index + yyyyMMDate);
+            start += Hour_24_Mill;
+        }
+    }
+
     @Override
     public void run() {
         LOG.info("step 4: start migration thread.");
@@ -138,15 +148,12 @@ public class Migration implements Runnable {
         Map<String, Integer> saeRuleType = sysCfgInfo.getSaeRuleType();
         LOG.info("current system nodeChain: {}", currentNodeId);
         LOG.debug("sae rule type info: \n {}", JsonUtil.parseToPrettyJson(saeRuleType));
-        // 删除5.x的合并告警、安全事件，避免脏数据
-        EsUtil.deleteIndex(Merge_5x_Index, Incident_5x_Index_Local);
+        esIndexPrepare(migrationStart, migrationEnd);
         while (migrationStart < migrationEnd) {
             String indexDate = yyyymmdd.format(new Date(migrationStart));
             String yyyyMMDDDate = yyyymmdd.format(new Date(migrationStart));
             String yyyyMMDate = yyyymm.format(new Date(migrationStart));
             LOG.info("\nstart migrating [{}].............................................................\n", indexDate);
-            // 删除5.x的复制原始告警、关联表，避免脏数据
-            EsUtil.deleteIndex(Alarm_5x_Index + yyyyMMDate, Related_5x_Index + yyyyMMDate);
 
             // 聚合当前原始告警种类
             List<Map> esResponse = EsUtil.searchThenTermAggregation(Alarm_3x_Index + indexDate, Alarm_3x_Type,

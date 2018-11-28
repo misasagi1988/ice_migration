@@ -2,7 +2,7 @@ spring:
   application:
     name: incident
   datasource:
-      url: jdbc:mysql://172.16.100.234:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false
+      url: jdbc:mysql://172.16.100.233:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false
       username: hansight
       password: hansight
       driver-class-name: com.mysql.jdbc.Driver
@@ -11,8 +11,8 @@ spring:
 
 
 migration:
-  start_time: 2018-11-26
-  end_time: 2018-11-27
+  start_time: 2018-10-26
+  end_time: 2018-12-27
 
 logging:
   config: log4j2.yml
