@@ -684,6 +684,22 @@ public class EsUtil {
         }
     }
 
+    public static void deleteIndex(Collection<String> index){
+        String method = "DELETE";
+        for (String i : index) {
+            try {
+                if(existsIndex(i)) {
+                    Response response = restClient.performRequest(method, "/" + i);
+                    logger.info("delete index[{}] status: {}", i, EntityUtils.toString(response.getEntity()));
+                }
+                else {
+                    logger.info("[{}] index not exists", i);
+                }
+            } catch (Exception e) {
+                logger.error("delete index err:{}", e.getMessage());
+            }
+        }
+    }
 
     public static void deleteIndex(String... index){
         String method = "DELETE";
@@ -691,7 +707,7 @@ public class EsUtil {
             try {
                 if(existsIndex(i)) {
                     Response response = restClient.performRequest(method, "/" + i);
-                    logger.info("delete index[{}] status: {}", EntityUtils.toString(response.getEntity()));
+                    logger.info("delete index[{}] status: {}", i, EntityUtils.toString(response.getEntity()));
                 }
                 else {
                     logger.info("[{}] index not exists", i);

@@ -133,12 +133,16 @@ public class Migration implements Runnable {
 
     // 删除5.x的合并告警、安全事件，复制原始告警、关联表，避免脏数据
     public void esIndexPrepare(long start, long end) {
-        EsUtil.deleteIndex(Merge_5x_Index, Incident_5x_Index_Local);
+        Set<String> deleteIndex = new HashSet<>();
+        deleteIndex.add(Merge_5x_Index);
+        deleteIndex.add(Incident_5x_Index_Local);
         while (start < end) {
             String yyyyMMDate = yyyymm.format(new Date(start));
-            EsUtil.deleteIndex(Alarm_5x_Index + yyyyMMDate, Related_5x_Index + yyyyMMDate);
+            deleteIndex.add(Alarm_5x_Index + yyyyMMDate);
+            deleteIndex.add(Related_5x_Index + yyyyMMDate);
             start += Hour_24_Mill;
         }
+        EsUtil.deleteIndex(deleteIndex);
     }
 
     @Override

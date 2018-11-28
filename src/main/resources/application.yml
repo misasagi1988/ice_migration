@@ -2,7 +2,7 @@ spring:
   application:
     name: incident
   datasource:
-      url: jdbc:mysql://172.16.100.233:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false
+      url: jdbc:mysql://172.16.100.234:3399/hansight?useUnicode=true&characterEncoding=utf8&useSSL=false
       username: hansight
       password: hansight
       driver-class-name: com.mysql.jdbc.Driver
