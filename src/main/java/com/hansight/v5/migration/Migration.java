@@ -1,6 +1,7 @@
 package com.hansight.v5.migration;
 
 import com.hansight.v5.util.*;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
@@ -95,6 +97,7 @@ public class Migration implements Runnable {
             System.exit(-1);
         }
         LOG.info("step 2: get migration time region.");
+        mgDateCache.expire(MIGRATED_DATE_KEY);
         if (mgDateCache.get(MIGRATED_DATE_KEY) == null) {
             LOG.info("first startup...");
             try {
@@ -154,236 +157,235 @@ public class Migration implements Runnable {
                     if (m.get("key") == null) continue;
                     String alarmName = m.get("key").toString();
                     LOG.info("process alarm: [{} - {}]", alarmName, m.get("doc_count"));
+                    try {
+                        // 把所有的告警搜索出来
+                        List<Map> alarms = EsUtil.searchByScan(Alarm_3x_Index + indexDate, Alarm_3x_Type,
+                                QueryBuilders.boolQuery().must(QueryBuilders.termQuery("alarm_name", alarmName)));
 
-                    // 把所有的告警搜索出来
-                    List<Map> alarms = EsUtil.searchByScan(Alarm_3x_Index + indexDate, Alarm_3x_Type,
-                            QueryBuilders.boolQuery().must(QueryBuilders.termQuery("alarm_name", alarmName)));
+                        Map ict = incidentCache.get(alarmName);
 
-                    Map ict = incidentCache.get(alarmName);
+                        Map merge = null;
 
-                    Map merge = null;
+                        if (ict == null) {
+                            // 说明这个ict首次出现
+                            ict = new HashMap();
+                            ict.put("node_chain", currentNodeId);
+                            ict.put("node_id", currentNodeId);
+                            ict.put("@pu", "{}");
+                            ict.put("advice", null);
+                            ict.put("type", 10100);
+                            ict.put("title", alarmName);
+                            ict.put("alarm_source", alarmName);
+                            ict.put("ice_rule_id", 1);
+                            ict.put("handle_status", 1);
+                            ict.put("ict_from", 0);
+                            ict.put("confirm_status", 0);
 
-                    if (ict == null) {
-                        // 说明这个ict首次出现
-                        ict = new HashMap();
-                        ict.put("node_chain", currentNodeId);
-                        ict.put("node_id", currentNodeId);
-                        ict.put("@pu", "{}");
-                        ict.put("advice", null);
-                        ict.put("type", 10100);
-                        ict.put("title", alarmName);
-                        ict.put("alarm_source", alarmName);
-                        ict.put("ice_rule_id", 1);
-                        ict.put("handle_status", 1);
-                        ict.put("ict_from", 0);
-                        ict.put("confirm_status", 0);
+                            ict.put("create_time", migrationStart);
+                            ict.put("start_time", System.currentTimeMillis());
+                            ict.put("end_time", 0L);
+                            ict.put("update_time", 0L);
 
-                        ict.put("create_time", migrationStart);
-                        ict.put("start_time", System.currentTimeMillis());
-                        ict.put("end_time", 0L);
-                        ict.put("update_time", 0L);
+                            ict.put("id", TimeIdGenerator.wrapYMD2ID(
+                                    TimeIdGenerator.generate(migrationStart, IDSeed.INCIDENT_SEED), migrationStart));
+                            ict.put("data_source_array", new String[0]);
+                            ict.put("name", SequenceIdUtil.getIncrSeqId());
 
-                        ict.put("id", TimeIdGenerator.wrapYMD2ID(
-                                TimeIdGenerator.generate(migrationStart, IDSeed.INCIDENT_SEED), migrationStart));
-                        ict.put("data_source_array", new String[0]);
-                        ict.put("name", SequenceIdUtil.getIncrSeqId());
+                            ict.put("intranet", new HashSet<>());
+                            ict.put("internet", new HashSet<>());
+                            ict.put("intranet_region_array", new HashSet<>());
 
-                        ict.put("intranet", new HashSet<>());
-                        ict.put("internet", new HashSet<>());
-                        ict.put("intranet_region_array", new HashSet<>());
+                            LOG.info("create new incident: [title={}, name={}, id={}]", ict.get("title"), ict.get("name"), ict.get("id"));
+                            // 写安全事件到5.x
+                            EsUtil.insert(Incident_5x_Index_Local, Incident_5x_Type, ict.get("id").toString(), ict, true);
+                        }
 
-                        LOG.info("create new incident: [title={}, name={}, id={}]", ict.get("title"), ict.get("name"), ict.get("id"));
-                        // 写安全事件到5.x
-                        EsUtil.insert(Incident_5x_Index_Local, Incident_5x_Type, ict.get("id").toString(), ict, true);
-                    }
-
-                    Set<String> mergeIntranet = new HashSet<>();
-                    Set<String> mergeInternet = new HashSet<>();
-                    Set<String> mergeIntranetRegion = new HashSet<>();
-                    if (alarms != null) {
-                        int number = 0;
-                        for (Map alarm : alarms) {
-                            if(number ++ % 500 == 0){
-                                pauseSeconds(1);
-                            }
-                            // 删除不需要的字段
-                            alarm_3x_delete_fields.forEach(f -> alarm.remove(f));
-                            // 重命名指定字段
-                            if(alarm.get("alarm_key") == null ||
-                                    alarm.get("node_chain") == null ||
-                                    alarm.get("start_time") == null ||
-                                    alarm.get("end_time") == null){
-                                LOG.warn("illegal alarm data: {}", alarm);
-                                continue;
-                            }
-
-                            String alarmKey = alarm.remove("alarm_key").toString();
-                            String nodeChain = alarm.get("node_chain").toString();
-                            long startTime = (long)alarm.get("start_time");
-                            long endTime = (long)alarm.get("end_time");
-                            if(alarmKey.startsWith(nodeChain)){
-                                if(alarmKey.indexOf('/') < 0){
-                                    // 表示此告警是当前系统的告警，不是子节点的
-                                    alarmKey = alarmKey.substring(nodeChain.length()+1, alarmKey.length());
-                                    alarm.put("merge_key", alarmKey);
-                                    alarm.put("sae_rule_id", alarm.remove("rule_id"));
-                                    if(saeRuleType.containsKey(alarm.get("rule_type"))){
-                                        alarm.put("sae_rule_type", saeRuleType.get(alarm.get("rule_type")));
-                                    }
-                                    else {
-                                        alarm.put("sae_rule_type", 1);
-                                    }
-                                    alarm.put("id", TimeIdGenerator.wrapYMD2ID(
-                                            TimeIdGenerator.generate((long)alarm.get("start_time"), IDSeed.ALERT_SEED), migrationStart));
-
-                                    alarm.put("alarm_tag", new HashMap<>(2));
-                                    alarm.put("data_source_array", new String[0]);
-                                    alarm.put("alarm_advice", null);
-                                    alarm.put("create_time", migrationStart);
-                                    alarm.put("@sae_template_type", 1);
-
-                                    // TODO - 处理内外网数组
-                                    Set<String> ips =getStringSet(alarm, "src_address_array");
-                                    ips.addAll(getStringSet(alarm, "dst_address_array"));
-
-                                    Set<String> intranet = new HashSet<>();
-                                    Set<String> internet = new HashSet<>();
-                                    Set<String> intranetRegion = new HashSet<>();
-                                    ips.forEach(ip->{
-                                        if(IPService.isIntranet(ip)){
-                                            intranet.add(ip);
-                                            String regionName = IPService.getSystemIntranetName(ip);
-                                            if(StringUtils.isNotBlank(regionName)) {
-                                                intranetRegion.add(regionName);
-                                            }
-                                        }
-                                        else {
-                                            internet.add(ip);
-                                        }
-                                    });
-                                    alarm.put("intranet", intranet);
-                                    alarm.put("internet", internet);
-                                    alarm.put("intranet_region_array", intranetRegion);
-
-                                    mergeIntranet.addAll(intranet);
-                                    mergeInternet.addAll(internet);
-                                    mergeIntranetRegion.addAll(intranetRegion);
-                                    // 写原始告警到5.x
-                                    EsUtil.insert(Alarm_5x_Index+yyyyMMDate, Alarm_5x_Type, alarm.get("id").toString(), alarm);
-
-
-                                    // 新建今天的合并告警
-                                    if(merge == null){
-                                        merge = new HashMap(alarm);
-                                        merge.remove("src_address_array");
-                                        merge.remove("dst_address_array");
-                                        merge.remove("@ctime");
-                                        merge.remove("@alarm_source");
-                                        merge.remove("dst_address_array_cnt");
-                                        merge.remove("src_address_array_cnt");
-                                        merge.remove("node_name");
-                                        merge.remove("alarm_tag");
-                                        merge.remove("event_id");
-                                        merge.remove("ids_cnt");
-
-
-                                        merge.put("id", TimeIdGenerator.wrapYMD2ID(
-                                                TimeIdGenerator.generate((long)merge.get("start_time"), IDSeed.MERGE_ALERT_SEED), migrationStart));
-                                        merge.put("source_type", 0);
-                                        merge.put("confirm_status", 0);
-                                        merge.put("create_time", migrationStart);
-                                        merge.put("incident_id", ict.get("id"));
-                                        merge.put("intranet", new HashSet<>());
-                                        merge.put("internet", new HashSet<>());
-                                        merge.put("intranet_region_array", new HashSet<>());
-                                        merge.put("merge_key", ict.get("id") + "-" + yyyyMMDDDate + "-" + alarmKey);
-
-
-                                        switch ((int)merge.get("alarm_level")){
-                                            case 0:
-                                                ict.put("priority", 0);
-                                                ict.put("severity", 0);
-                                                break;
-                                            case 1:
-                                                ict.put("priority", 25);
-                                                ict.put("severity", 1);
-                                                break;
-                                            case 2:
-                                                ict.put("priority", 50);
-                                                ict.put("severity", 2);
-                                                break;
-                                            case 3:
-                                                ict.put("priority", 75);
-                                                ict.put("severity", 3);
-                                                break;
-                                            default:
-                                                LOG.warn("found unknown alarm level={}, set default", merge.get("alarm_level"));
-                                                ict.put("priority", 0);
-                                                ict.put("severity", 0);
-                                        }
-                                        ict.put("attack_phase", new Integer[]{(int)merge.get("alarm_stage")});
-                                    }
-                                    if(startTime < (long)merge.get("start_time")){
-                                        merge.put("start_time", startTime);
-                                    }
-                                    if(endTime > (long)merge.get("end_time")){
-                                        merge.put("end_time", endTime);
-                                    }
-
-                                    if(startTime < (long)ict.get("start_time")){
-                                        ict.put("start_time", startTime);
-                                    }
-                                    if(endTime > (long)ict.get("update_time")){
-                                        ict.put("end_time", endTime);
-                                        ict.put("update_time", endTime);
-                                    }
-
-                                    // 写关联信息到5.x
-                                    Map related = new HashMap(8);
-                                    related.put("incident_id", ict.get("id"));
-                                    related.put("start_time", startTime);
-                                    related.put("create_time", migrationStart);
-                                    related.put("merge_alert_id", merge.get("id"));
-                                    related.put("alert_id", alarm.get("id"));
-                                    related.put("concern_field", new String[0]);
-                                    related.put("id", TimeIdGenerator.wrapYMD2ID(
-                                            TimeIdGenerator.generate((long)alarm.get("start_time"), IDSeed.RELATION_SEED), migrationStart));
-                                    EsUtil.insert(Related_5x_Index+yyyyMMDate, Related_5x_Type, related.get("id").toString(), related);
+                        Set<String> mergeIntranet = new HashSet<>();
+                        Set<String> mergeInternet = new HashSet<>();
+                        Set<String> mergeIntranetRegion = new HashSet<>();
+                        if (alarms != null) {
+                            int number = 0;
+                            for (Map alarm : alarms) {
+                                if (number++ % 500 == 0) {
+                                    pauseSeconds(1);
                                 }
-                                else {
-                                    LOG.warn("found child node data={}, skip", alarm);
+                                // 删除不需要的字段
+                                alarm_3x_delete_fields.forEach(f -> alarm.remove(f));
+                                // 重命名指定字段
+                                if (alarm.get("alarm_key") == null ||
+                                        alarm.get("node_chain") == null ||
+                                        alarm.get("start_time") == null ||
+                                        alarm.get("end_time") == null) {
+                                    LOG.warn("illegal alarm data: {}", alarm);
+                                    continue;
+                                }
+
+                                String alarmKey = alarm.remove("alarm_key").toString();
+                                String nodeChain = alarm.get("node_chain").toString();
+                                long startTime = (long) alarm.get("start_time");
+                                long endTime = (long) alarm.get("end_time");
+                                if (alarmKey.startsWith(nodeChain)) {
+                                    if (alarmKey.indexOf('/') < 0) {
+                                        // 表示此告警是当前系统的告警，不是子节点的
+                                        alarmKey = alarmKey.substring(nodeChain.length() + 1, alarmKey.length());
+                                        alarm.put("merge_key", alarmKey);
+                                        alarm.put("sae_rule_id", alarm.remove("rule_id"));
+                                        if (saeRuleType.containsKey(alarm.get("rule_type"))) {
+                                            alarm.put("sae_rule_type", saeRuleType.get(alarm.get("rule_type")));
+                                        } else {
+                                            alarm.put("sae_rule_type", 1);
+                                        }
+                                        alarm.put("id", TimeIdGenerator.wrapYMD2ID(
+                                                TimeIdGenerator.generate((long) alarm.get("start_time"), IDSeed.ALERT_SEED), migrationStart));
+
+                                        alarm.put("alarm_tag", new HashMap<>(2));
+                                        alarm.put("data_source_array", new String[0]);
+                                        alarm.put("alarm_advice", null);
+                                        alarm.put("create_time", migrationStart);
+                                        alarm.put("@sae_template_type", 1);
+
+                                        // TODO - 处理内外网数组
+                                        Set<String> ips = getStringSet(alarm, "src_address_array");
+                                        ips.addAll(getStringSet(alarm, "dst_address_array"));
+
+                                        Set<String> intranet = new HashSet<>();
+                                        Set<String> internet = new HashSet<>();
+                                        Set<String> intranetRegion = new HashSet<>();
+                                        ips.forEach(ip -> {
+                                            if (IPService.isIntranet(ip)) {
+                                                intranet.add(ip);
+                                                String regionName = IPService.getSystemIntranetName(ip);
+                                                if (StringUtils.isNotBlank(regionName)) {
+                                                    intranetRegion.add(regionName);
+                                                }
+                                            } else {
+                                                internet.add(ip);
+                                            }
+                                        });
+                                        alarm.put("intranet", intranet);
+                                        alarm.put("internet", internet);
+                                        alarm.put("intranet_region_array", intranetRegion);
+
+                                        mergeIntranet.addAll(intranet);
+                                        mergeInternet.addAll(internet);
+                                        mergeIntranetRegion.addAll(intranetRegion);
+                                        // 写原始告警到5.x
+                                        EsUtil.insert(Alarm_5x_Index + yyyyMMDate, Alarm_5x_Type, alarm.get("id").toString(), alarm);
+
+
+                                        // 新建今天的合并告警
+                                        if (merge == null) {
+                                            merge = new HashMap(alarm);
+                                            merge.remove("src_address_array");
+                                            merge.remove("dst_address_array");
+                                            merge.remove("@ctime");
+                                            merge.remove("@alarm_source");
+                                            merge.remove("dst_address_array_cnt");
+                                            merge.remove("src_address_array_cnt");
+                                            merge.remove("node_name");
+                                            merge.remove("alarm_tag");
+                                            merge.remove("event_id");
+                                            merge.remove("ids_cnt");
+
+
+                                            merge.put("id", TimeIdGenerator.wrapYMD2ID(
+                                                    TimeIdGenerator.generate((long) merge.get("start_time"), IDSeed.MERGE_ALERT_SEED), migrationStart));
+                                            merge.put("source_type", 0);
+                                            merge.put("confirm_status", 0);
+                                            merge.put("create_time", migrationStart);
+                                            merge.put("incident_id", ict.get("id"));
+                                            merge.put("intranet", new HashSet<>());
+                                            merge.put("internet", new HashSet<>());
+                                            merge.put("intranet_region_array", new HashSet<>());
+                                            merge.put("merge_key", ict.get("id") + "-" + yyyyMMDDDate + "-" + alarmKey);
+
+
+                                            switch ((int) merge.get("alarm_level")) {
+                                                case 0:
+                                                    ict.put("priority", 0);
+                                                    ict.put("severity", 0);
+                                                    break;
+                                                case 1:
+                                                    ict.put("priority", 25);
+                                                    ict.put("severity", 1);
+                                                    break;
+                                                case 2:
+                                                    ict.put("priority", 50);
+                                                    ict.put("severity", 2);
+                                                    break;
+                                                case 3:
+                                                    ict.put("priority", 75);
+                                                    ict.put("severity", 3);
+                                                    break;
+                                                default:
+                                                    LOG.warn("found unknown alarm level={}, set default", merge.get("alarm_level"));
+                                                    ict.put("priority", 0);
+                                                    ict.put("severity", 0);
+                                            }
+                                            ict.put("attack_phase", new Integer[]{(int) merge.get("alarm_stage")});
+                                        }
+                                        if (startTime < (long) merge.get("start_time")) {
+                                            merge.put("start_time", startTime);
+                                        }
+                                        if (endTime > (long) merge.get("end_time")) {
+                                            merge.put("end_time", endTime);
+                                        }
+
+                                        if (startTime < (long) ict.get("start_time")) {
+                                            ict.put("start_time", startTime);
+                                        }
+                                        if (endTime > (long) ict.get("update_time")) {
+                                            ict.put("end_time", endTime);
+                                            ict.put("update_time", endTime);
+                                        }
+
+                                        // 写关联信息到5.x
+                                        Map related = new HashMap(8);
+                                        related.put("incident_id", ict.get("id"));
+                                        related.put("start_time", startTime);
+                                        related.put("create_time", migrationStart);
+                                        related.put("merge_alert_id", merge.get("id"));
+                                        related.put("alert_id", alarm.get("id"));
+                                        related.put("concern_field", new String[0]);
+                                        related.put("id", TimeIdGenerator.wrapYMD2ID(
+                                                TimeIdGenerator.generate((long) alarm.get("start_time"), IDSeed.RELATION_SEED), migrationStart));
+                                        EsUtil.insert(Related_5x_Index + yyyyMMDate, Related_5x_Type, related.get("id").toString(), related);
+                                    } else {
+                                        LOG.warn("found child node data={}, skip", alarm);
+                                        continue;
+                                    }
+                                } else {
+                                    LOG.warn("nodeChain not matched: [alarm-nodechain={}, system-nodechain={]]", nodeChain, currentNodeId);
                                     continue;
                                 }
                             }
-                            else {
-                                LOG.warn("nodeChain not matched: [alarm-nodechain={}, system-nodechain={]]", nodeChain, currentNodeId);
-                                continue;
+                            if (merge != null) {
+                                merge.put("intranet", mergeIntranet);
+                                merge.put("internet", mergeInternet);
+                                merge.put("intranet_region_array", mergeIntranetRegion);
+                                merge.put("alarm_count", alarms.size());
+                                // 写合并告警到5.x
+                                LOG.info("create new merge: [name={}, id={}, count={}]", merge.get("alarm_name"), merge.get("id"), merge.get("alarm_count"));
+                                EsUtil.insert(Merge_5x_Index, Merge_5x_Type, merge.get("id").toString(), merge);
+                            } else {
+                                LOG.info("no merge data for alarm: {}.", alarmName);
                             }
                         }
-                        if(merge != null) {
-                            merge.put("intranet", mergeIntranet);
-                            merge.put("internet", mergeInternet);
-                            merge.put("intranet_region_array", mergeIntranetRegion);
-                            merge.put("alarm_count", alarms.size());
-                            // 写合并告警到5.x
-                            LOG.info("create new merge: [name={}, id={}, count={}]", merge.get("alarm_name"), merge.get("id"), merge.get("alarm_count"));
-                            EsUtil.insert(Merge_5x_Index, Merge_5x_Type, merge.get("id").toString(), merge);
-                        } else {
-                            LOG.info("no merge data for alarm: {}.", alarmName);
+                        // TODO - 处理内外网数组
+                        getStringSet(ict, "intranet").addAll(mergeIntranet);
+                        getStringSet(ict, "internet").addAll(mergeInternet);
+                        getStringSet(ict, "intranet_region_array").addAll(mergeIntranetRegion);
+
+                        LOG.debug("update incident:{}", JsonUtil.parseToPrettyJson(ict));
+                        EsUtil.update(Incident_5x_Index_Local,
+                                Incident_5x_Type, ict.get("id").toString(), ict, true);
+                        incidentCache.put(alarmName, ict);
+
+                        if ((long) ict.get("update_time") - (long) ict.get("start_time") >= 30 * Hour_24_Mill) {
+                            incidentCache.expire(alarmName);
                         }
-                    }
-                    // TODO - 处理内外网数组
-                    getStringSet(ict, "intranet").addAll(mergeIntranet);
-                    getStringSet(ict, "internet").addAll(mergeInternet);
-                    getStringSet(ict, "intranet_region_array").addAll(mergeIntranetRegion);
-
-                    LOG.debug("update incident:{}", JsonUtil.parseToPrettyJson(ict));
-                    EsUtil.update(Incident_5x_Index_Local,
-                            Incident_5x_Type, ict.get("id").toString(), ict, true);
-                    incidentCache.put(alarmName, ict);
-
-                    if((long)ict.get("update_time") - (long)ict.get("start_time") >= 30 * Hour_24_Mill){
-                        incidentCache.expire(alarmName);
+                    } catch (Exception e) {
+                        LOG.error("process incident error for alarm: {}", alarmName);
                     }
                 }
             }
@@ -400,6 +402,10 @@ public class Migration implements Runnable {
 
     private boolean prepareCache() {
         try {
+            File dir = new File(DB_PATH);
+            if(dir.exists()) {
+                FileUtils.deleteQuietly(dir);
+            }
             mgDateCache = new RocksdbCache(DB_PATH, DB_MIGRATION_DATE, String.class);
             incidentCache = new RocksdbCache(DB_PATH, DB_INCIDENT, Map.class);
         } catch (Exception e) {

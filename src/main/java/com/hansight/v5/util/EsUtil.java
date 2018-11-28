@@ -105,8 +105,11 @@ public class EsUtil {
             public void afterBulk(long executionId, BulkRequest request,
                                   BulkResponse response) {
                 if (response.hasFailures()) {
-                    logger.warn("Bulk [{}] executed with failures, msg:{}", executionId, response.buildFailureMessage());
-
+                    try {
+                        logger.warn("Bulk [{}] executed with failures, msg:{}", executionId, response.buildFailureMessage());
+                    } catch (Exception e) {
+                        logger.warn("Bulk [{}] executed with failures, response status:{}", executionId, response.status());
+                    }
                 } else {
                     logger.debug("Bulk [{}] completed in {} milliseconds", executionId, response.getTook().getMillis());
                 }
