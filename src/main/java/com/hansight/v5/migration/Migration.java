@@ -55,6 +55,7 @@ public class Migration implements Runnable {
                     "@alarm_source", "alarm_tag",
                     "event_ids", "ids_cnt",
                     "node_name", "node_address",
+                    "src_address_array_cnt", "dst_address_array_cnt",
                     "dst_port_array_cnt", "dst_port_array",
                     "src_port_array_cnt", "src_port_array")
     );
@@ -232,7 +233,7 @@ public class Migration implements Runnable {
                                 }
 
                                 String alarmKey = alarm.remove("alarm_key").toString();
-                                String nodeChain = alarm.get("node_chain").toString();
+                                String nodeChain = alarm.remove("node_chain").toString();
                                 long startTime = (long) alarm.get("start_time");
                                 long endTime = (long) alarm.get("end_time");
                                 if (alarmKey.startsWith(nodeChain)) {
@@ -246,6 +247,7 @@ public class Migration implements Runnable {
                                         } else {
                                             alarm.put("sae_rule_type", 1);
                                         }
+                                        alarm.remove("rule_type");
                                         alarm.put("id", TimeIdGenerator.wrapYMD2ID(
                                                 TimeIdGenerator.generate((long) alarm.get("start_time"), IDSeed.ALERT_SEED), migrationStart));
 
@@ -253,7 +255,7 @@ public class Migration implements Runnable {
                                         alarm.put("data_source_array", new String[0]);
                                         alarm.put("alarm_advice", null);
                                         alarm.put("create_time", migrationStart);
-                                        alarm.put("@sae_template_type", 1);
+                                        alarm.put("@sae_template_type", 0);
 
                                         // TODO - 处理内外网数组
                                         Set<String> ips = getStringSet(alarm, "src_address_array");
@@ -358,6 +360,7 @@ public class Migration implements Runnable {
                                         related.put("merge_alert_id", merge.get("id"));
                                         related.put("alert_id", alarm.get("id"));
                                         related.put("concern_field", new String[0]);
+                                        related.put("rule_id", 1L);
                                         related.put("id", TimeIdGenerator.wrapYMD2ID(
                                                 TimeIdGenerator.generate((long) alarm.get("start_time"), IDSeed.RELATION_SEED), migrationStart));
                                         EsUtil.insert(Related_5x_Index + yyyyMMDate, Related_5x_Type, related.get("id").toString(), related);

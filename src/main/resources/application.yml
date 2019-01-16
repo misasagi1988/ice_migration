@@ -15,7 +15,7 @@ migration:
   end_time: 2018-12-27
 
 logging:
-  config: log4j2.yml
+  config: classpath:log4j2.yml
 
 elasticsearch:
   cluster_name: hansight-enterprise
